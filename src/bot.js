@@ -1,62 +1,53 @@
-require('dotenv').config();
+require('dotenv').config(); // Load environment variables from .env file
 const { Telegraf } = require('telegraf');
 const mongoose = require('mongoose');
+const api = require('./api/index'); // Import the API
+const commandHandlers = require('./handlers');
 
-// Initialize bot with token
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Define a Mongoose schema and model for storing updates
-const updateSchema = new mongoose.Schema({
-    update_id: Number,
-    message: Object,
-    date: { type: Date, default: Date.now }
+// Start the API server
+api; // Automatically starts the API server
+
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+})
+    .then(() => console.log('MongoDB connected'))
+    .catch((err) => console.error('MongoDB connection error:', err));
+
+// Handle the "/start" command to show the main menu
+bot.start(async (ctx) => {
+    await commandHandlers.start(ctx); // Call the start handler
 });
 
-const Update = mongoose.model('Update', updateSchema);
+// Handle text input from the keyboard
+bot.hears('Sales', async (ctx) => {
+    await commandHandlers.sales(ctx);
+});
 
-// Connect to MongoDB
-async function connectToDB() {
-    try {
-        await mongoose.connect(process.env.MONGO_URI);
-        console.log('Connected to MongoDB');
-    } catch (error) {
-        console.error('Error connecting to MongoDB:', error);
-    }
-}
+bot.hears('My receipts', async (ctx) => {
+    await commandHandlers.receipts(ctx);
+});
 
-// Handle connection issues and send error message
-bot.use(async (ctx, next) => {
-    if (mongoose.connection.readyState !== 1) {
-        ctx.reply("sorry I can't connect to my DB");
+bot.hears('Write feedback', async (ctx) => {
+    await commandHandlers.feedback(ctx);
+});
+
+// Handle callback queries for receipts
+bot.action(/receipt_(.+)/, async (ctx) => {
+    const receiptId = ctx.match[1];
+    const receipt = await Receipt.findById(receiptId);
+
+    if (receipt) {
+        ctx.reply(`Receipt Details:\nDate: ${receipt.date.toLocaleDateString()}\nTotal: ${receipt.total} UAH\nFiscal ID: ${receipt.fiscal_id}\nShop ID: ${receipt.shop_id}`);
     } else {
-        await next();
+        ctx.reply('Receipt not found.');
     }
 });
 
-// Save updates to MongoDB
-bot.on('text', async (ctx) => {
-    const newUpdate = new Update({
-        update_id: ctx.update.update_id,
-        message: ctx.message
-    });
-
-    try {
-        await newUpdate.save();
-        console.log('Update saved:', ctx.update.update_id);
-    } catch (error) {
-        console.error('Error saving update:', error);
-    }
-
-    ctx.reply('Message received and saved to DB');
-});
-
-// Start the bot and connect to the DB
-(async () => {
-    await connectToDB();
-    bot.launch();
-    console.log('Bot started');
-})();
-
-// Enable graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+// Start the bot
+bot.launch()
+    .then(() => console.log('Bot is running'))
+    .catch((err) => console.error('Bot launch error:', err));
